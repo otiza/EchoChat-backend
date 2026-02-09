@@ -1,0 +1,25 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: echochat-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  api:
+    build:
+      context: .
+      dockerfile: Chat.Api/Dockerfile
+    container_name: echochat-api
+    depends_on:
+      - mongo
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Mongo__ConnectionString: mongodb://mongo:27017
+      Mongo__Database: echochat
+    ports:
+      - "5274:8080"
+
+volumes:
+  mongo_data:
