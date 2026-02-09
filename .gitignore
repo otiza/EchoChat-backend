@@ -1,0 +1,73 @@
+# .gitignore for C# (.NET) projects + JetBrains Rider on Linux
+
+# Build / output
+*/bin/
+*/obj/
+*/out/
+*/artifacts/
+*/publish/
+*/dist/
+
+# Visual Studio / Rider / IDE
+.vs/
+.idea/
+*.sln.iml
+*.iml
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/dictionaries/
+
+# User-specific files
+*.user
+*.userosscache
+*.suo
+*.DotSettings.user
+*.rsuser
+*.sln.docstates
+
+# NuGet / packages
+packages/
+*.nupkg
+project.lock.json
+project.assets.json
+.nuget/
+.nuget/packages/
+
+# Rider caches
+.idea_modules/
+__ReSharper*/
+_ReSharper*/
+*.DotSettings
+
+# Test results / coverage
+TestResults/
+*.trx
+coverage/
+*.coverage
+*.coveragexml
+
+# Logs / databases / temp
+*.log
+*.sqlite
+*.db
+*.db-shm
+*.db-wal
+*.pid
+*.seed
+
+# Secrets / local env
+.env
+.env.local
+secrets.json
+appsettings.*.Local.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Misc
+*.zip
+*.tar.gz
+*.7z
+*.log
+
