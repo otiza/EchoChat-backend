@@ -1,4 +1,7 @@
 using Serilog;
+using Chat.Infrastructure.Persistence.Mongo;
+using MongoDB.Bson;
+using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +10,7 @@ builder.Host.UseSerilog((ctx, services, cfg) =>
     cfg.ReadFrom.Configuration(ctx.Configuration)
         .ReadFrom.Services(services));
 
+builder.Services.AddMongo(builder.Configuration);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHealthChecks();
@@ -32,6 +36,13 @@ app.MapGet("/api/version", () =>
         name = asm.Name,
         version = asm.Version?.ToString() ?? "unknown"
     });
+});
+
+app.MapGet("/health/mongo", async (IMongoDatabase db) =>
+{
+    var cmd = new BsonDocument("ping", 1);
+    await db.RunCommandAsync<BsonDocument>(cmd);
+    return Results.Ok(new { mongo = "ok" });
 });
 
 app.Run();
