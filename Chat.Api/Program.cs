@@ -1,29 +1,28 @@
+using Serilog;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// Serilog (reads config from appsettings.json)
+builder.Host.UseSerilog((ctx, services, cfg) =>
+    cfg.ReadFrom.Configuration(ctx.Configuration)
+        .ReadFrom.Services(services));
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-Console.WriteLine(app.Environment.IsDevelopment());
+// Logs HTTP requests (method/path/status + timing)
+app.UseSerilogRequestLogging();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapHealthChecks("/health"); 
+app.MapHealthChecks("/health");
 
 app.MapGet("/api/version", () =>
 {
@@ -31,9 +30,8 @@ app.MapGet("/api/version", () =>
     return Results.Ok(new
     {
         name = asm.Name,
-        version = asm.Version?.ToString() ??  "unknown"
+        version = asm.Version?.ToString() ?? "unknown"
     });
-    
 });
 
 app.Run();
