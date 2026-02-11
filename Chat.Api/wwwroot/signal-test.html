@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>EchoChat Realtime ddToolkit</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+        input, textarea, button, select { padding: 10px; font-size: 14px; }
+        button { cursor: pointer; }
+        .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; max-width: 980px; margin-bottom: 14px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+        .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+        .col { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 240px; }
+        label { font-size: 12px; color: #444; }
+        textarea { width: 100%; height: 80px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .status { font-weight: 700; }
+        .ok { color: #0a7; }
+        .bad { color: #c20; }
+        .muted { color: #666; font-size: 12px; }
+        .log { white-space: pre-wrap; background: #0b0b0b; color: #e7e7e7; border-radius: 12px; padding: 12px; max-width: 980px; height: 420px; overflow: auto; }
+        .pill { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid #ddd; border-radius: 999px; }
+        .k { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background:#f6f6f6; border-radius: 8px; padding: 2px 6px; }
+        .danger { border-color:#f3b; }
+        .btnRow button { min-width: 160px; }
+    </style>
+</head>
+
+<body>
+<h2>EchoChat Realtime Testing Toolkit</h2>
+
+<div class="card">
+    <div class="row">
+        <div class="col">
+            <label>API Base URL</label>
+            <input id="baseUrl" placeholder="http://localhost:5274" />
+            <div class="muted">Leave empty to use current origin.</div>
+        </div>
+
+        <div class="col">
+            <label>Auto-connect after login</label>
+            <div class="pill">
+                <input id="autoConnect" type="checkbox" checked />
+                <span class="muted">Connect SignalR right after login</span>
+            </div>
+        </div>
+
+        <div class="col">
+            <label>Auth Status</label>
+            <div class="status" id="authStatus">Not logged in</div>
+        </div>
+
+        <div class="col">
+            <label>Hub Status</label>
+            <div class="status" id="hubStatus">Disconnected</div>
+        </div>
+    </div>
+
+    <div class="grid" style="margin-top: 12px;">
+        <!-- Left: Auth -->
+        <div>
+            <div class="row">
+                <div class="col">
+                    <label>Username</label>
+                    <input id="username" placeholder="username" />
+                </div>
+                <div class="col">
+                    <label>Password</label>
+                    <input id="password" type="password" placeholder="password" />
+                </div>
+            </div>
+
+            <div class="row btnRow" style="margin-top: 10px;">
+                <button id="loginBtn">Login</button>
+                <button id="logoutBtn" class="danger">Clear session</button>
+                <span class="muted">Uses <span class="k">POST /auth/login</span></span>
+            </div>
+
+            <div style="margin-top: 10px;">
+                <label>JWT (auto-filled)</label>
+                <textarea id="jwt" placeholder="(filled after login)"></textarea>
+            </div>
+
+            <div class="muted" style="margin-top: 6px;">
+                Tip: open two tabs and login with two different users to test presence + realtime.
+            </div>
+        </div>
+
+        <!-- Right: Realtime tools -->
+        <div>
+            <div class="row btnRow">
+                <button id="connectBtn">Connect Hub</button>
+                <button id="disconnectBtn" disabled>Disconnect</button>
+                <button id="refreshConvosBtn" disabled>Refresh Conversations</button>
+            </div>
+
+            <div style="margin-top: 10px;">
+                <label>My Conversations</label>
+                <select id="conversationSelect" disabled>
+                    <option value="">(load conversations first)</option>
+                </select>
+                <div class="muted">
+                    Loads from <span class="k">GET /conversations?limit=50</span>.
+                    Selecting one sets the active conversation.
+                </div>
+            </div>
+
+            <div class="row" style="margin-top: 10px;">
+                <div class="col">
+                    <label>Active Conversation ID</label>
+                    <input id="conversationId" placeholder="conversationId..." />
+                </div>
+                <button id="joinBtn" disabled>Join (optional)</button>
+            </div>
+
+            <div class="row" style="margin-top: 10px;">
+                <div class="col">
+                    <label>Message</label>
+                    <input id="msg" placeholder="Type a message..." />
+                </div>
+                <button id="sendBtn" disabled>Send</button>
+            </div>
+
+            <div class="row btnRow" style="margin-top: 10px;">
+                <button id="loadHistoryBtn" disabled>Load History (HTTP)</button>
+                <button id="onlineBtn" disabled>Fetch Online Users</button>
+                <span class="muted">Online = online contacts</span>
+            </div>
+
+            <div class="muted" style="margin-top: 6px;">
+                Events:
+                <span class="k">MessageReceived</span>,
+                <span class="k">ConversationUpdated</span>,
+                <span class="k">UserPresenceChanged</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<h3>Log</h3>
+<div class="log" id="log"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
+<script>
+    const $ = (id) => document.getElementById(id);
+
+    const logEl = $("log");
+    const authStatusEl = $("authStatus");
+    const hubStatusEl = $("hubStatus");
+
+    const loginBtn = $("loginBtn");
+    const logoutBtn = $("logoutBtn");
+
+    const connectBtn = $("connectBtn");
+    const disconnectBtn = $("disconnectBtn");
+    const refreshConvosBtn = $("refreshConvosBtn");
+    const convSelect = $("conversationSelect");
+
+    const joinBtn = $("joinBtn");
+    const sendBtn = $("sendBtn");
+    const loadHistoryBtn = $("loadHistoryBtn");
+    const onlineBtn = $("onlineBtn");
+
+    function log(...args) {
+        const line = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
+        logEl.textContent += line + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(el, text, ok) {
+        el.textContent = text;
+        el.className = "status " + (ok ? "ok" : "bad");
+    }
+
+    function apiBase() {
+        const base = $("baseUrl").value.trim();
+        return base ? base.replace(/\/$/, "") : window.location.origin;
+    }
+
+    function hubUrl() {
+        return `${apiBase()}/hubs/chat`;
+    }
+
+    function authHeader() {
+        const token = $("jwt").value.trim();
+        return { "Authorization": `Bearer ${token}` };
+    }
+
+    function mustHaveToken() {
+        const token = $("jwt").value.trim();
+        if (!token) {
+            alert("Login first (or paste JWT).");
+            return false;
+        }
+        return true;
+    }
+
+    // --- Login ---
+    async function login() {
+        const username = $("username").value.trim();
+        const password = $("password").value;
+
+        if (!username || !password) return alert("Enter username + password.");
+
+        const url = `${apiBase()}/auth/login`;
+        log("Login URL:", url);
+
+        try {
+            setStatus(authStatusEl, "Logging in...", true);
+
+            const res = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password })
+            });
+
+            const text = await res.text();
+            let data = null;
+            try { data = text ? JSON.parse(text) : null; } catch {}
+
+            if (!res.ok) {
+                setStatus(authStatusEl, "Login failed", false);
+                log("[Login failed]", res.status, text);
+                return;
+            }
+
+            const token = data?.token || data?.accessToken || data?.jwt || data?.Token;
+            if (!token) {
+                setStatus(authStatusEl, "Login ok but token missing", false);
+                log("[Login ok] Response:", data ?? text);
+                return;
+            }
+
+            $("jwt").value = token;
+            setStatus(authStatusEl, "Logged in", true);
+            log("[Login ok] token length:", token.length);
+
+            connectBtn.disabled = false;
+            refreshConvosBtn.disabled = false;
+            convSelect.disabled = false;
+
+            if ($("autoConnect").checked) {
+                await connectHub();
+            }
+        } catch (e) {
+            setStatus(authStatusEl, "Login error", false);
+            log("[Login error]", e?.message || e);
+        }
+    }
+
+    function clearSession() {
+        $("jwt").value = "";
+        $("username").value = "";
+        $("password").value = "";
+        setStatus(authStatusEl, "Not logged in", false);
+        log("[Session cleared]");
+    }
+
+    // --- Conversations list (HTTP) ---
+    async function refreshConversations() {
+        if (!mustHaveToken()) return;
+
+        const url = `${apiBase()}/conversations?limit=50`;
+        log("Fetch conversations:", url);
+
+        try {
+            const res = await fetch(url, { headers: { ...authHeader() } });
+            const text = await res.text();
+            let data = null;
+            try { data = text ? JSON.parse(text) : null; } catch {}
+
+            if (!res.ok) {
+                log("[Conversations failed]", res.status, text);
+                alert("Failed to load conversations. Check logs.");
+                return;
+            }
+
+            const list = Array.isArray(data) ? data : [];
+            convSelect.innerHTML = "";
+            convSelect.appendChild(new Option(`(${list.length} conversations)`, ""));
+
+            for (const c of list) {
+                const id = c.id || c.conversationId || c.Id;
+                if (!id) continue;
+
+                const participants = (c.participantUserIds || c.participants || [])
+                    .filter(Boolean)
+                    .join(", ");
+
+                const lastAt = c.lastMessageAt || c.createdAt || "";
+                const label = `${id}  |  ${participants}  |  ${lastAt}`;
+
+                convSelect.appendChild(new Option(label, id));
+            }
+
+            convSelect.disabled = false;
+            log("[Conversations loaded]", list.length);
+        } catch (e) {
+            log("[Conversations error]", e?.message || e);
+        }
+    }
+
+    convSelect.onchange = () => {
+        const id = convSelect.value;
+        if (!id) return;
+
+        $("conversationId").value = id;
+        log("[Active conversation set]", id);
+    };
+
+    // --- SignalR ---
+    let connection = null;
+
+    async function connectHub() {
+        if (!mustHaveToken()) return;
+
+        const jwt = $("jwt").value.trim();
+        const url = hubUrl();
+        log("Hub URL:", url);
+
+        connection = new signalR.HubConnectionBuilder()
+            .withUrl(url, { accessTokenFactory: () => jwt })
+            .withAutomaticReconnect()
+            .configureLogging(signalR.LogLevel.Information)
+            .build();
+
+        connection.on("MessageReceived", (msg) => log("[MessageReceived]", msg));
+        connection.on("ConversationUpdated", (payload) => log("[ConversationUpdated]", payload));
+        connection.on("UserPresenceChanged", (payload) => log("[UserPresenceChanged]", payload));
+
+        connection.onreconnecting((err) => {
+            setStatus(hubStatusEl, "Reconnecting...", false);
+            log("[Reconnecting]", err?.message || err);
+        });
+
+        connection.onreconnected((connectionId) => {
+            setStatus(hubStatusEl, "Connected", true);
+            log("[Reconnected] connectionId:", connectionId);
+        });
+
+        connection.onclose((err) => {
+            setStatus(hubStatusEl, "Disconnected", false);
+            log("[Closed]", err?.message || err);
+
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+
+            joinBtn.disabled = true;
+            sendBtn.disabled = true;
+            loadHistoryBtn.disabled = true;
+            onlineBtn.disabled = true;
+        });
+
+        try {
+            await connection.start();
+            setStatus(hubStatusEl, "Connected", true);
+            log("[Connected] connectionId:", connection.connectionId);
+
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+
+            joinBtn.disabled = false;        // optional
+            sendBtn.disabled = false;
+            loadHistoryBtn.disabled = false;
+            onlineBtn.disabled = false;
+
+            await refreshConversations();
+        } catch (e) {
+            setStatus(hubStatusEl, "Connect failed", false);
+            log("[Connect failed]", e?.message || e);
+        }
+    }
+
+    async function disconnectHub() {
+        if (!connection) return;
+        await connection.stop();
+        connection = null;
+    }
+
+    async function joinConversation() {
+        if (!connection) return alert("Connect hub first.");
+        const convId = $("conversationId").value.trim();
+        if (!convId) return alert("Pick a conversation first.");
+
+        try {
+            await connection.invoke("JoinConversation", convId);
+            log("[Joined]", convId);
+        } catch (e) {
+            log("[Join failed]", e?.message || e);
+        }
+    }
+
+    async function sendMessage() {
+        if (!connection) return alert("Connect hub first.");
+        const convId = $("conversationId").value.trim();
+        const text = $("msg").value;
+        if (!convId) return alert("Pick a conversation first.");
+        if (!text.trim()) return;
+
+        try {
+            const result = await connection.invoke("SendMessage", convId, text);
+            log("[Sent]", result);
+            $("msg").value = "";
+        } catch (e) {
+            log("[Send failed]", e?.message || e);
+        }
+    }
+
+    async function loadHistory() {
+        if (!mustHaveToken()) return;
+
+        const convId = $("conversationId").value.trim();
+        if (!convId) return alert("Pick a conversation first.");
+
+        const url = `${apiBase()}/conversations/${encodeURIComponent(convId)}/messages?limit=20`;
+        log("Load history:", url);
+
+        try {
+            const res = await fetch(url, { headers: { ...authHeader() } });
+            const text = await res.text();
+            let data = null;
+            try { data = text ? JSON.parse(text) : null; } catch {}
+
+            if (!res.ok) {
+                log("[History failed]", res.status, text);
+                return;
+            }
+
+            log("[History]", data);
+        } catch (e) {
+            log("[History error]", e?.message || e);
+        }
+    }
+
+    async function fetchOnlineUsers() {
+        if (!connection) return alert("Connect hub first.");
+
+        try {
+            // requires backend hub method: GetOnlineContacts
+            const list = await connection.invoke("GetOnlineContacts");
+            log("[OnlineContacts]", list);
+        } catch (e) {
+            log("[OnlineContacts failed]", e?.message || e);
+        }
+    }
+
+    // Try to stop nicely on tab close
+    window.addEventListener("beforeunload", () => {
+        try { connection?.stop(); } catch {}
+    });
+
+    // --- Wire up ---
+    loginBtn.onclick = login;
+
+    logoutBtn.onclick = async () => {
+        await disconnectHub();
+        clearSession();
+        convSelect.innerHTML = '<option value="">(load conversations first)</option>';
+        convSelect.disabled = true;
+        refreshConvosBtn.disabled = true;
+
+        joinBtn.disabled = true;
+        sendBtn.disabled = true;
+        loadHistoryBtn.disabled = true;
+        onlineBtn.disabled = true;
+
+        disconnectBtn.disabled = true;
+        connectBtn.disabled = false;
+    };
+
+    connectBtn.onclick = connectHub;
+    disconnectBtn.onclick = disconnectHub;
+    refreshConvosBtn.onclick = refreshConversations;
+    joinBtn.onclick = joinConversation;
+    sendBtn.onclick = sendMessage;
+    loadHistoryBtn.onclick = loadHistory;
+    onlineBtn.onclick = fetchOnlineUsers;
+
+    $("password").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+    $("msg").addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+
+    // initial
+    setStatus(authStatusEl, "Not logged in", false);
+    setStatus(hubStatusEl, "Disconnected", false);
+
+    connectBtn.disabled = false;
+    disconnectBtn.disabled = true;
+
+    refreshConvosBtn.disabled = true;
+    convSelect.disabled = true;
+
+    joinBtn.disabled = true;
+    sendBtn.disabled = true;
+    loadHistoryBtn.disabled = true;
+    onlineBtn.disabled = true;
+</script>
+</body>
+</html>
